@@ -464,7 +464,7 @@ fn main() {
     ];
 
     let matches = App::new("Gogs Authentication Filter for cgit")
-        .version("0.1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("Varphone Wong <varphone@qq.com>")
         .about("https://github.com/varphone/cgit-gogs-auth-filter")
         .subcommand(
