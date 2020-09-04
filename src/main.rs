@@ -10,17 +10,17 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::env;
-use std::fs::{metadata, OpenOptions};
+use std::fs::{metadata, read_dir, remove_file, OpenOptions};
 use std::io::{stdin, BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use syslog::{BasicLogger, Facility, Formatter3164};
 use url::form_urlencoded;
 
 type DynError = Box<dyn std::error::Error>;
 
-const SESSION_TIMEOUT: u64 = 60 * 60 * 24;
+const COOKIE_TTL: u64 = 60 * 60 * 8;
 
 include!(concat!(env!("OUT_DIR"), "/secret.rs"));
 
@@ -42,8 +42,9 @@ fn rand_str(len: usize) -> String {
 
 #[derive(Debug, Default)]
 struct Config {
-    gogs_url: String,
     cache_dir: String,
+    cookie_ttl: u64,
+    gogs_url: String,
 }
 
 impl Config {
@@ -57,20 +58,28 @@ impl Config {
     }
 
     fn new() -> Self {
-        let mut _cfg: Config = Default::default();
+        let mut cache_dir = "/var/cache/cgit-gogs-auth-filter".to_string();
+        let mut cookie_ttl = COOKIE_TTL;
+        let mut gogs_url = "https://127.0.0.1:3000".to_string();
         if let Ok(f) = OpenOptions::new().read(true).open("/etc/cgitrc") {
             let f = BufReader::new(f);
             for line in f.lines() {
                 if let Ok(s) = line {
-                    if s.starts_with("cgit-gogs-auth-filter.gogs-url") {
-                        _cfg.gogs_url = Self::value_of(&s);
-                    } else if s.starts_with("cgit-gogs-auth-filter.cache-dir") {
-                        _cfg.cache_dir = Self::value_of(&s);
+                    if s.starts_with("cgit-gogs-auth-filter.cache-dir") {
+                        cache_dir = Self::value_of(&s);
+                    } else if s.starts_with("cgit-gogs-auth-filter.cookie-ttl") {
+                        cookie_ttl = Self::value_of(&s).parse::<u64>().unwrap_or(COOKIE_TTL);
+                    } else if s.starts_with("cgit-gogs-auth-filter.gogs-url") {
+                        gogs_url = Self::value_of(&s);
                     }
                 }
             }
         }
-        _cfg
+        Self {
+            cache_dir,
+            cookie_ttl,
+            gogs_url,
+        }
     }
 }
 
@@ -273,35 +282,39 @@ fn cmd_authenticate_cookie<'a>(
         return cmd_authenticate_basic(matches, Some(cfg));
     }
     // Find hash and nonce
-    let mut auth = String::new();
-    let mut nonce = String::new();
+    let mut cgitauth_b64 = String::new();
     let segs = cookie.split(';').map(|x| x.trim()).collect::<Vec<&str>>();
     for s in segs {
         if s.starts_with("cgitauth=") {
             let (_, val) = s.split_at(9);
-            auth = val.to_string();
-        } else if s.starts_with("cgitnonce=") {
-            let (_, val) = s.split_at(10);
-            nonce = val.to_string();
+            cgitauth_b64 = val.to_string();
+            break;
         }
     }
+    // Decode the base64 encoded cookie.
+    let decoded_bytes = base64::decode_block(&cgitauth_b64)?;
+    let cgitauth_plain = std::str::from_utf8(&decoded_bytes)?;
+    let list: Vec<&str> = cgitauth_plain.splitn(2, ':').collect();
+    if list.len() < 2 {
+        return Err("Nonce does not exists!".into());
+    }
     // Check the encrypted cookie file.
-    let path = Path::new(&cfg.cache_dir).join(auth);
+    let path = Path::new(&cfg.cache_dir).join(list[0]);
     if !path.exists() {
         return Err("Cookie does not exists!".into());
     }
     // Check session timeout.
     let meta = metadata(&path)?;
     let modified = meta.modified()?;
-    let elapsed = modified.elapsed()?;
-    if elapsed > Duration::from_secs(SESSION_TIMEOUT) {
-        std::fs::remove_file(&path)?;
+    let elapsed = SystemTime::now().duration_since(modified)?;
+    if elapsed > Duration::from_secs(cfg.cookie_ttl) {
+        remove_file(&path)?;
         return Err("Cookie is timeout!".into());
     }
     // Load encrypted cookie file.
     let data = Data::from_file(&path, true);
     // Verify the nonce.
-    if data.nonce != nonce {
+    if data.nonce != list[1] {
         return Err("Nonce is not matched!".into());
     }
     // Check repo permissions.
@@ -339,10 +352,11 @@ fn cmd_authenticate_post<'a>(
     }
     // Authenticated via gogs.
     if verify_login(&cfg, &data).is_ok() {
-        let cgitauth = data.hash();
-        let path = Path::new(&cfg.cache_dir).join(&cgitauth);
+        let hash = data.hash();
+        let cgitauth = format!("{}:{}", hash, data.nonce);
+        let cgitauth_b64 = base64::encode_block(cgitauth.as_bytes());
+        let path = Path::new(&cfg.cache_dir).join(&hash);
         data.to_file(path, true);
-        // let cookie = format!("cgitauth={}", &cgitauth);
         let is_secure = matches
             .value_of("https")
             .map_or(false, |x| matches!(x, "yes" | "on" | "1"));
@@ -358,12 +372,8 @@ fn cmd_authenticate_post<'a>(
         println!("Cache-Control: no-cache, no-store");
         println!("Location: {}", location);
         println!(
-            "Set-Cookie: cgitauth={}; Domain={}; HttpOnly{}",
-            cgitauth, domain, cookie_suffix
-        );
-        println!(
-            "Set-Cookie: cgitnonce={}; Domain={}; HttpOnly{}",
-            data.nonce, domain, cookie_suffix
+            "Set-Cookie: cgitauth={}; Domain={}; Max-Age={}; HttpOnly{}",
+            cgitauth_b64, domain, cfg.cookie_ttl, cookie_suffix
         );
     } else {
         println!("Status: 401 Unauthorized");
@@ -384,6 +394,36 @@ fn cmd_body<'a>(matches: &ArgMatches<'a>, _cfg: Option<Config>) {
     handlebars
         .render_template_to_write(source, &meta, std::io::stdout())
         .unwrap();
+}
+
+// Processing the `body` called by cron.
+fn cmd_expire<'a>(_matches: &ArgMatches<'a>, cfg: Option<Config>) {
+    let cfg = cfg.unwrap_or(Config::new());
+    for entry in read_dir(cfg.cache_dir).unwrap() {
+        let entry = entry.unwrap();
+        if let Ok(file_type) = entry.file_type() {
+            if !file_type.is_file() {
+                continue;
+            }
+        }
+        if let Ok(meta) = entry.metadata() {
+            if !meta.is_file() {
+                continue;
+            }
+            if let Ok(time) = meta.modified() {
+                let elapsed = SystemTime::now().duration_since(time).unwrap();
+                if elapsed > Duration::from_secs(cfg.cookie_ttl) {
+                    println!(
+                        "Remove {:?} > {:?}, {:?}",
+                        elapsed,
+                        Duration::from_secs(cfg.cookie_ttl),
+                        entry.path()
+                    );
+                    remove_file(&entry.path()).unwrap();
+                }
+            }
+        }
+    }
 }
 
 fn main() {
@@ -442,6 +482,7 @@ fn main() {
                 .about("Return the login form")
                 .args(sub_args),
         )
+        .subcommand(SubCommand::with_name("expire").about("Check and clean all expired cookies"))
         .get_matches();
 
     // Load filter configurations
@@ -455,8 +496,15 @@ fn main() {
                 std::process::exit(0);
             }
         }
-        ("authenticate-post", Some(matches)) => cmd_authenticate_post(matches, Some(cfg)).unwrap(),
-        ("body", Some(matches)) => cmd_body(matches, Some(cfg)),
+        ("authenticate-post", Some(matches)) => {
+            cmd_authenticate_post(matches, Some(cfg)).unwrap();
+        }
+        ("body", Some(matches)) => {
+            cmd_body(matches, Some(cfg));
+        }
+        ("expire", Some(matches)) => {
+            cmd_expire(matches, Some(cfg));
+        }
         _ => {}
     }
 }
