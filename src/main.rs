@@ -291,6 +291,10 @@ fn cmd_authenticate_cookie<'a>(
             break;
         }
     }
+    if cgitauth_b64.is_empty() {
+        // Try Authenticate-Basic if header exists.
+        return cmd_authenticate_basic(matches, Some(cfg));
+    }
     // Decode the base64 encoded cookie.
     let decoded_bytes = base64::decode_block(&cgitauth_b64)?;
     let cgitauth_plain = std::str::from_utf8(&decoded_bytes)?;
