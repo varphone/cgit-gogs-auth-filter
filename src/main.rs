@@ -193,6 +193,8 @@ fn verify_login(cfg: &Config, data: &Data) -> Result<bool, DynError> {
     let auth_basic = format!("Authorization: Basic {}", basic_b64);
     list.append(&auth_basic)?;
     easy.http_headers(list)?;
+    easy.ssl_verify_host(false)?;
+    easy.ssl_verify_peer(false)?;
     {
         let mut transfer = easy.transfer();
         transfer.write_function(|data| {
@@ -217,6 +219,8 @@ fn verify_perms(cfg: &Config, data: &Data, repo: &str) -> Result<(), DynError> {
     let auth_basic = format!("Authorization: Basic {}", basic_b64);
     list.append(&auth_basic)?;
     easy.http_headers(list)?;
+    easy.ssl_verify_host(false)?;
+    easy.ssl_verify_peer(false)?;
     {
         let mut transfer = easy.transfer();
         transfer.write_function(|data| {
