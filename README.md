@@ -58,3 +58,13 @@ server {
     }
 }
 ```
+
+Auto cleanup expired cookies
+----------------------------
+
+The enable auto cleanup expired cookies, you should add a task to the `crontab` like this:
+
+```crontab
+# Cleanup cgit-gogs-auth-filter expired cookies at every minute
+* * * * * /usr/local/bin/cgit-gogs-auth-filter expire
+```
