@@ -131,10 +131,10 @@ impl Data {
         }
     }
 
-    pub fn from_file<P: AsRef<Path>>(path: P, encrypted: bool) -> Self {
-        let mut file = OpenOptions::new().read(true).open(path).unwrap();
+    pub fn from_file<P: AsRef<Path>>(path: P, encrypted: bool) -> Result<Self, DynError> {
+        let mut file = OpenOptions::new().read(true).open(path)?;
         let mut buffer = Vec::new();
-        let size = file.read_to_end(&mut buffer).unwrap();
+        let size = file.read_to_end(&mut buffer)?;
         if encrypted {
             let size = if size % 32 != 0 {
                 ((size / 32) + 1) * 32
@@ -144,8 +144,8 @@ impl Data {
             buffer.resize(size, 0);
             buffer = Self::decrypt(&buffer);
         }
-        let plaintext = std::str::from_utf8(&buffer).unwrap();
-        toml::from_str(plaintext.trim_end_matches(char::from(0))).unwrap()
+        let plaintext = std::str::from_utf8(&buffer)?;
+        toml::from_str(plaintext.trim_end_matches(char::from(0))).map_err(|e| e.into())
     }
 
     pub fn to_file<P: AsRef<Path>>(&self, path: P, encrypt: bool) {
@@ -326,7 +326,7 @@ fn cmd_authenticate_cookie<'a>(
         return Err("Cookie is timeout!".into());
     }
     // Load encrypted cookie file.
-    let data = Data::from_file(&path, true);
+    let data = Data::from_file(&path, true)?;
     // Verify the nonce.
     if data.nonce != list[1] {
         return Err("Nonce is not matched!".into());
