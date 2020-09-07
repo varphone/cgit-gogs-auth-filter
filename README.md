@@ -3,6 +3,21 @@
 
 [CGit](https://git.zx2c4.com/cgit/) `auth-filter` based on [Gogs](https://gogs.io/) authentication.
 
+Requirements
+------------
+
+- `Rust` - The Rust Language, `Version >= 1.31`, [How to Install?](https://www.rust-lang.org/tools/install)
+
+Building
+--------
+
+```sh
+# Build with release profile
+cargo build --release
+# Install binary to /usr/local/bin/
+sudo cp target/release/cgit-gogs-auth-filter /usr/local/bin/
+```
+
 Enable the filter
 -----------------
 
@@ -22,7 +37,7 @@ The filter read the configurations from `/etc/cgitrc`, available settings:
 # Directory to save the cookies
 cgit-gogs-auth-filter.cache-dir=/var/cache/cgit-gogs-auth-filter
 # Time to live of the cookies in seconds
-cgit-gogs-auth-filter.cache-ttl=7200
+cgit-gogs-auth-filter.cookie-ttl=7200
 # Url for access to the gogs service.
 cgit-gogs-auth-filter.gogs-url=http://127.0.0.1:3000
 ```
