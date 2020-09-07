@@ -40,11 +40,17 @@ fn rand_str(len: usize) -> String {
     password
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Config {
     cache_dir: String,
     cookie_ttl: u64,
     gogs_url: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Config {
