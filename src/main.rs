@@ -1,7 +1,7 @@
 use clap::{App, Arg, ArgMatches, SubCommand};
 use curl::easy::{Easy, List};
 use handlebars::Handlebars;
-use log::{debug, LevelFilter};
+use log::{debug, info, LevelFilter};
 use openssl::aes::{aes_ige, AesKey};
 use openssl::base64;
 use openssl::sha::Sha1;
@@ -20,6 +20,7 @@ use url::form_urlencoded;
 
 type DynError = Box<dyn std::error::Error>;
 
+const COOKIE_FILE_NAME_LEN: usize = 40;
 const COOKIE_TTL: u64 = 60 * 60 * 8;
 
 include!(concat!(env!("OUT_DIR"), "/secret.rs"));
@@ -415,11 +416,6 @@ fn cmd_expire<'a>(_matches: &ArgMatches<'a>, cfg: Option<Config>) {
     let cfg = cfg.unwrap_or_default();
     for entry in read_dir(cfg.cache_dir).unwrap() {
         let entry = entry.unwrap();
-        if let Ok(file_type) = entry.file_type() {
-            if !file_type.is_file() {
-                continue;
-            }
-        }
         if let Ok(meta) = entry.metadata() {
             if !meta.is_file() {
                 continue;
@@ -427,13 +423,21 @@ fn cmd_expire<'a>(_matches: &ArgMatches<'a>, cfg: Option<Config>) {
             if let Ok(time) = meta.modified() {
                 let elapsed = SystemTime::now().duration_since(time).unwrap();
                 if elapsed > Duration::from_secs(cfg.cookie_ttl) {
-                    println!(
-                        "Remove {:?} > {:?}, {:?}",
-                        elapsed,
-                        Duration::from_secs(cfg.cookie_ttl),
-                        entry.path()
-                    );
-                    remove_file(&entry.path()).unwrap();
+                    let path = entry.path();
+                    // Security guard: check file name length.
+                    if path
+                        .file_name()
+                        .filter(|x| x.len() == COOKIE_FILE_NAME_LEN)
+                        .is_none()
+                    {
+                        continue;
+                    }
+                    // Security guard: verify content data.
+                    if Data::from_file(&path, true).is_err() {
+                        continue;
+                    }
+                    remove_file(&path).unwrap();
+                    info!("cookie in {:?} expired, removed", path);
                 }
             }
         }
