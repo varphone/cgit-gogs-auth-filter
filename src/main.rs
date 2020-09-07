@@ -248,7 +248,7 @@ fn cmd_authenticate_basic<'a>(
     matches: &ArgMatches<'a>,
     cfg: Option<Config>,
 ) -> Result<(), DynError> {
-    let cfg = cfg.unwrap_or(Config::new());
+    let cfg = cfg.unwrap_or_default();
     // Read `Authorization` header from env
     if let Ok(auth) = env::var("HTTP_AUTHORIZATION") {
         // Currently only support `Basic` authorization
@@ -281,7 +281,7 @@ fn cmd_authenticate_cookie<'a>(
     cfg: Option<Config>,
 ) -> Result<(), DynError> {
     // Load configurations.
-    let cfg = cfg.unwrap_or(Config::new());
+    let cfg = cfg.unwrap_or_default();
     // Read stdin from upstream.
     let mut buffer = String::new();
     stdin().read_to_string(&mut buffer)?;
@@ -346,7 +346,7 @@ fn cmd_authenticate_post<'a>(
     cfg: Option<Config>,
 ) -> Result<(), DynError> {
     // Load configurations.
-    let cfg = cfg.unwrap_or(Config::new());
+    let cfg = cfg.unwrap_or_default();
     // Read stdin from upstream.
     let mut buffer = String::new();
     stdin().read_to_string(&mut buffer)?;
@@ -412,7 +412,7 @@ fn cmd_body<'a>(matches: &ArgMatches<'a>, _cfg: Option<Config>) {
 
 // Processing the `body` called by cron.
 fn cmd_expire<'a>(_matches: &ArgMatches<'a>, cfg: Option<Config>) {
-    let cfg = cfg.unwrap_or(Config::new());
+    let cfg = cfg.unwrap_or_default();
     for entry in read_dir(cfg.cache_dir).unwrap() {
         let entry = entry.unwrap();
         if let Ok(file_type) = entry.file_type() {
