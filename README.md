@@ -42,6 +42,15 @@ cgit-gogs-auth-filter.cookie-ttl=7200
 cgit-gogs-auth-filter.gogs-url=http://127.0.0.1:3000
 ```
 
+The `${cgit-gogs-auth-filter.cache-dir}` must be created by manual with correct permissions and owner.
+
+For example in `ubuntu`:
+
+```sh
+sudo mkdir -p /var/cache/cgit-gogs-auth-filter
+sudo chown www-data:www-data -R /var/cache/cgit-gogs-auth-filter
+```
+
 HTTP Basic authentication
 -------------------------
 
